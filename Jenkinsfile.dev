@@ -1,0 +1,134 @@
+pipeline {
+  agent any
+  environment {
+    role_id = 'f8447366-0291-4272-b592-3072c933f71d' //--
+    secret_id = '648f4c90-1045-61b0-30d4-786d94c3cd4d' //--
+    DEFAULT_SECRET_LEASE_ID = '' //--
+    AWS_ACCESS_KEY_ID = '' //-- 
+    AWS_SECRET_ACCESS_KEY = '' //--
+    TF_CLI_ARGS = '-no-color' //-- 
+    PROFILE = 'sura-integra-devops-jenkins-desarrollo-sec' //--
+    REGION = 'us-west-2' //--
+    VAULT_ADDR = "https://ec2-35-83-80-158.us-west-2.compute.amazonaws.com:8200" //--
+    token_vault = '' //-- 
+    secret_aws_config_profile = 'v1/aws/sts/POLITICA-ACCESO-JENKINS-sura-integra-devops-jenkins-desarrollo' //--
+  }
+
+    stages {
+      stage('Autenticarse a Vault') {
+        steps {
+          script {
+            def auth_path = 'v1/auth/approle/login'
+            def vault_data = "{\"role_id\": \"${role_id}\", \"secret_id\": \"${secret_id}\"}"
+            def token = sh(
+              script: "curl -X POST -H 'Content-Type: application/json' -d '${vault_data}' -k '${VAULT_ADDR}/${auth_path}' | jq -r '.auth.client_token'",
+              returnStdout: true
+            ).trim()
+            token_vault = token
+            echo "token_vault: ${token_vault}"
+          }
+        }
+      }
+    
+    stage('Generar configs temporal AWS') {
+      steps {
+        // Leer secretos de Vault
+        script {
+          secret_config = sh(
+            script: "curl -X POST -s --header 'X-Vault-Token: ${token_vault}' --data '{\"ttl\": \"60m\"}' -k '${VAULT_ADDR}/${secret_aws_config_profile}'",
+            returnStdout: true
+          ).trim()
+        }
+        script {
+          try {
+            def terraformHome = "/home/jenkins/terraform" // Reemplaza con la ruta correcta a tu instalación de Terraform
+            env.PATH = "${terraformHome}:${env.PATH}"
+            def access_key_config = sh(
+              script: "echo '${secret_config}' | jq -r '.data.access_key'",
+              returnStdout: true
+            ).trim()
+
+            echo "secret_sm: ${access_key_config}"
+            def secret_key_config = sh(
+              script: "echo '${secret_config}' | jq -r '.data.secret_key'",
+              returnStdout: true
+            ).trim()
+            echo "secret_sm: ${secret_key_config}"
+
+            def lease_id_config = sh(
+              script: "echo '${secret_config}' | jq -r '.lease_id'",
+              returnStdout: true
+            ).trim()
+            echo "secret_sm: ${lease_id_config}"
+
+            AWS_ACCESS_KEY_ID = access_key_config
+            AWS_SECRET_ACCESS_KEY = secret_key_config
+            DEFAULT_SECRET_LEASE_ID = lease_id_config
+          } catch (Exception e) {
+            echo "Error: ${e.getMessage()}"
+          }
+        }
+        script {
+          echo "SM Key: ${AWS_ACCESS_KEY_ID}"
+          echo "SM Key: ${AWS_SECRET_ACCESS_KEY}"
+          echo "LEASE ID: ${DEFAULT_SECRET_LEASE_ID}"
+          sh """
+          aws configure list
+          aws configure set aws_access_key_id "${AWS_ACCESS_KEY_ID}" --profile "${PROFILE}"
+          aws configure set aws_secret_access_key "${AWS_SECRET_ACCESS_KEY}" --profile "${PROFILE}"
+          aws configure set region "${REGION}" --profile "${PROFILE}"
+          aws configure list
+          """ 
+          sh "aws configure list --profile ${PROFILE}"
+        }
+      }
+    }
+    stage('Terraform Init - Apply') {
+        steps { 
+            withEnv([
+              "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}",
+              "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
+            ]) {
+                dir('modules/ecr-repository') {
+                // Inicializar Terraform y cargar el archivo de variables
+                sh 'terraform init'
+                
+                // Generar el plan y guardarlo en un archivo
+                sh 'terraform plan -out=tfplan'
+                
+                // Aplicar el plan
+                sh 'terraform apply -auto-approve tfplan'
+              
+            
+            }
+        }
+      }
+    }
+  }
+  post {
+    always {
+      script {
+        sleep time: 100
+        def destroyOutput = sh(
+          script: "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} /home/jenkins/terraform/terraform destroy --auto-approve",
+          returnStdout: true
+        )
+        echo destroyOutput
+        
+        def info = sh(
+          script: "curl -X POST -s --header 'X-Vault-Token: ${token_vault}' --data '{\"lease_id\": \"${DEFAULT_SECRET_LEASE_ID}\"}' -k '${VAULT_ADDR}/v1/sys/leases/revoke'",
+          returnStdout: true
+        ).trim()
+        echo "INFO: ${info}"
+
+        if (destroyOutput.contains("Destroy complete!")) {
+          echo "Terraform destroy completed successfully."
+        } else {
+          echo "Terraform destroy encountered an error. Please check the logs for more details."
+        }
+      }
+    }
+  }
+}
+
+ 

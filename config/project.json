@@ -1,0 +1,22 @@
+{
+    "nombre" : "npv" ,
+    "tag-recursos" : "POC" ,
+    "microservicios" : [
+        {
+            "nombre" : "apertura",
+            "context-path" : "/integra/producto-voluntario/apertura"
+        },
+        {
+            "nombre" : "dashboard",
+            "context-path" : "/integra/producto-voluntario/dashboard"
+        },
+        {
+            "nombre" : "consulta",
+            "context-path" : "/integra/producto-voluntario/consulta"
+        },
+        {
+            "nombre" : "eecc",
+            "context-path" : "/integra/producto-voluntario/eecc"
+        }
+    ]
+}

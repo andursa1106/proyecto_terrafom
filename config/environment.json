@@ -1,0 +1,9 @@
+{
+    "ambiente" : "desa",
+    "ambiente-corto" : "d",
+    "instance-ami-id" : "ami-0bef6cc322bfff646",
+    "instance-type-id" : "t2.micro",
+    "main_vpc" : "vpc-0ece4b40826e5af4c",
+    "main_subnet" : "subnet-08a96f2d829cf15ae",
+    "secondary_subnet" : "subnet-01a538452f13beae2"
+}

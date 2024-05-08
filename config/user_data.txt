@@ -1,0 +1,8 @@
+#!/bin/bash
+
+echo 'instalando componentes' > /tmp/instalacion
+sudo amazon-linux-extras disable docker
+sudo amazon-linux-extras install -y ecs
+echo 'ECS_CLUSTER=cluster-${nombre_cluster}-${ambiente_cluster}' > /etc/ecs/ecs.config
+sudo systemctl enable --now --no-block ecs
+echo 'finalizado' > /tmp/finalizado
